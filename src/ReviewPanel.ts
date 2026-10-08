@@ -6,6 +6,7 @@ import { postComment, postReply, submitDraftReview, getGitHubToken,
          editComment, deleteComment, resolveThread, unresolveThread,
          fetchPrComments, fetchThreadMeta } from './GitHubClient';
 import { prepareDraftComments, type DraftComment } from './drafts';
+import { resolveLink, isMarkdownPath } from './links';
 
 function getNonce(): string {
   let text = '';
@@ -46,6 +47,7 @@ export class ReviewPanel {
   private _currentUserLogin = '';
   private _draftComments: DraftComment[] = [];
   private _lastRenderMsg: RenderMessage | undefined;
+  private _navigating = false;
 
   static createOrShow(extensionUri: vscode.Uri): ReviewPanel {
     const column = vscode.ViewColumn.Beside;
@@ -112,6 +114,7 @@ export class ReviewPanel {
       currentUserLogin: ctx.currentUserLogin,
       validLines: ctx.validLinesByPath.get(ctx.filePath) ?? [],
       draftCount: 0,
+      readOnly: false,
     };
     this._panel.webview.postMessage(this._lastRenderMsg);
   }
@@ -129,13 +132,13 @@ export class ReviewPanel {
     }
   }
 
-  private async _loadAndRender(relPath: string): Promise<void> {
+  private async _loadAndRender(relPath: string): Promise<boolean> {
     let markdown: string;
     try {
       markdown = fs.readFileSync(path.join(this._repoRoot, relPath), 'utf8');
     } catch {
       this._panel.webview.postMessage({ type: 'postError', message: `Could not read file: ${relPath}` });
-      return;
+      return false;
     }
 
     const { token } = await getGitHubToken();
@@ -171,8 +174,64 @@ export class ReviewPanel {
       headSha: this._headSha,
       currentUserLogin: this._currentUserLogin,
       draftCount: this._draftComments.length,
+      readOnly: !this._prFiles.some(f => f.path === relPath),
     };
     this._panel.webview.postMessage(this._lastRenderMsg);
+    return true;
+  }
+
+  // One navigation at a time; failures (unreadable file, GitHub fetch error) become a toast.
+  private async _runNavigation(action: () => Promise<void>): Promise<void> {
+    if (this._navigating) return;
+    this._navigating = true;
+    try {
+      await action();
+    } catch (err: unknown) {
+      this._notice(err instanceof Error ? err.message : String(err));
+    } finally {
+      this._navigating = false;
+    }
+  }
+
+  private _notice(message: string): void {
+    this._panel.webview.postMessage({ type: 'notice', message });
+  }
+
+  private async _openLink(href: string): Promise<void> {
+    const link = resolveLink(this._filePath, href);
+    if (link.kind === 'invalid') {
+      this._notice(link.reason);
+      return;
+    }
+    if (link.kind === 'external') {
+      await vscode.env.openExternal(vscode.Uri.parse(link.url));
+      return;
+    }
+    const absPath = path.join(this._repoRoot, link.relPath);
+    if (!fs.existsSync(absPath)) {
+      this._notice(`File not found: ${link.relPath}`);
+      return;
+    }
+    if (!isMarkdownPath(link.relPath)) {
+      await vscode.commands.executeCommand('vscode.open', vscode.Uri.file(absPath), {
+        viewColumn: vscode.ViewColumn.One,
+        preview: true,
+      });
+      return;
+    }
+    await this._show({ path: link.relPath, fragment: link.fragment });
+  }
+
+  // Shows a location: loads the file if it is not the current one, then asks the webview to
+  // scroll. Returns false when the file could not be loaded.
+  private async _show(target: { path: string; fragment?: string; scrollTop?: number }): Promise<boolean> {
+    if (target.path !== this._filePath && !(await this._loadAndRender(target.path))) return false;
+    this._panel.webview.postMessage(
+      target.fragment
+        ? { type: 'scrollTo', fragment: target.fragment }
+        : { type: 'scrollTo', scrollTop: target.scrollTop ?? 0 }
+    );
+    return true;
   }
 
   // Snap a 1-based line to the nearest diff-visible line for the given file.
@@ -209,6 +268,11 @@ export class ReviewPanel {
 
     if (msg.type === 'switchFile') {
       await this._loadAndRender(msg.path);
+      return;
+    }
+
+    if (msg.type === 'openLink') {
+      await this._runNavigation(() => this._openLink(msg.href));
       return;
     }
 

@@ -27,6 +27,8 @@ let openThreadIds: Set<number> = new Set();
 let navStrip: NavStrip | undefined;
 let diagramAnchors: Map<number, Point> = new Map();
 let currentMarkdown = '';
+let readOnly = false;
+let renderDone: Promise<void> = Promise.resolve();
 
 function countThreads(): number {
   return document.querySelectorAll<HTMLElement>('[data-thread-id]').length;
@@ -237,21 +239,36 @@ document.addEventListener('keydown', (e) => {
   if (e.key === ']') { e.preventDefault(); navStrip?.next(); }
 });
 
-// VS Code webviews block link navigation, so links are routed here.
+// VS Code webviews block link navigation, so every link is routed here.
 document.addEventListener('click', (e) => {
   const a = (e.target as Element).closest('a');
   if (!a) return;
   const action = classifyHref(a.getAttribute('href'));
-  if (action.kind !== 'fragment') return;
+  if (action.kind === 'ignore') return;
   e.preventDefault();
-  revealFragment(action.id);
+  if (action.kind === 'fragment') revealFragment(action.id);
+  else vscode.postMessage({ type: 'openLink', href: action.href, scrollTop: window.scrollY });
 });
 
 window.addEventListener('message', (event: MessageEvent<ExtensionMessage>) => {
   const msg = event.data;
 
   if (msg.type === 'render') {
-    handleRender(msg).catch(console.error);
+    renderDone = handleRender(msg).catch(console.error);
+    return;
+  }
+
+  if (msg.type === 'scrollTo') {
+    // The render before this message may still be laying out mermaid diagrams.
+    void renderDone.then(() => {
+      if (msg.fragment) revealFragment(msg.fragment);
+      else window.scrollTo(0, msg.scrollTop ?? 0);
+    });
+    return;
+  }
+
+  if (msg.type === 'notice') {
+    showToast(msg.message);
     return;
   }
 
@@ -329,6 +346,7 @@ async function handleRender(msg: RenderMessage): Promise<void> {
   allComments = msg.comments.map(processComment);
   allThreadMeta = [...msg.threadMeta];
   validLines = msg.validLines ?? [];
+  readOnly = msg.readOnly ?? false;
 
   // Build/update file-switcher dropdown in-place to avoid destroying NavStrip DOM
   const headerEl = document.getElementById('review-header')!;
@@ -356,6 +374,17 @@ async function handleRender(msg: RenderMessage): Promise<void> {
     opt.dataset.fullLabel = fileFullLabel(f.path, f.openCount, f.resolvedCount);
     opt.textContent = opt.dataset.shortLabel;
     opt.selected = f.path === msg.filePath;
+    selectEl.appendChild(opt);
+  }
+  if (!msg.prFiles.some(f => f.path === msg.filePath)) {
+    // A linked file outside the PR: show it in the switcher, marked read-only.
+    const opt = document.createElement('option');
+    opt.value = msg.filePath;
+    opt.dataset.shortLabel = `${fileShortName(msg.filePath, [...allPaths, msg.filePath])} (not in PR)`;
+    opt.dataset.fullLabel = `${msg.filePath} (not in PR)`;
+    opt.textContent = opt.dataset.shortLabel;
+    opt.selected = true;
+    opt.disabled = true;
     selectEl.appendChild(opt);
   }
 
@@ -398,7 +427,7 @@ async function handleRender(msg: RenderMessage): Promise<void> {
   draft = new DraftManager(vscode, header, msg.draftCount ?? 0);
 
   if (!selectionHandlersReady) {
-    initSelectionHandlers(contentEl, onAddComment, () => validLines);
+    initSelectionHandlers(contentEl, onAddComment, () => validLines, () => readOnly);
     selectionHandlersReady = true;
   }
 }

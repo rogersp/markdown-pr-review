@@ -37,6 +37,7 @@ export interface RenderMessage {
   headSha: string;
   currentUserLogin: string;
   draftCount: number;
+  readOnly: boolean; // a linked file that is not part of the PR
 }
 
 // Messages sent from the webview to the extension host
@@ -50,7 +51,8 @@ export type WebviewMessage =
   | { type: 'editComment'; commentId: number; body: string }
   | { type: 'deleteComment'; commentId: number }
   | { type: 'resolveThread'; threadNodeId: string }
-  | { type: 'unresolveThread'; threadNodeId: string };
+  | { type: 'unresolveThread'; threadNodeId: string }
+  | { type: 'openLink'; href: string; scrollTop: number };
 
 // Messages sent from the extension host to the webview
 export type ExtensionMessage =
@@ -62,4 +64,6 @@ export type ExtensionMessage =
   | { type: 'commentEdited'; commentId: number; body: string }
   | { type: 'commentDeleted'; commentId: number }
   | { type: 'threadResolved'; threadNodeId: string }
-  | { type: 'threadUnresolved'; threadNodeId: string };
+  | { type: 'threadUnresolved'; threadNodeId: string }
+  | { type: 'scrollTo'; fragment?: string; scrollTop?: number }
+  | { type: 'notice'; message: string };

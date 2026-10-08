@@ -225,10 +225,12 @@ function snapLineFor(line: number, validLines: number[]): number | null {
 export function initSelectionHandlers(
   container: HTMLElement,
   onAddComment: (anchor: HTMLElement, line: number) => void,
-  getValidLines: () => number[] = () => []
+  getValidLines: () => number[] = () => [],
+  isReadOnly: () => boolean = () => false
 ): void {
   document.addEventListener('mouseup', () => {
     removeFloatBtn();
+    if (isReadOnly()) return;
     const sel = window.getSelection();
     if (!sel || sel.isCollapsed) return;
 
@@ -264,6 +266,7 @@ export function initSelectionHandlers(
 
   container.addEventListener('contextmenu', (e) => {
     removeContextMenu();
+    if (isReadOnly()) return;
     const resolved = resolveSelectionAnchor(container);
     if (!resolved) return;
 
