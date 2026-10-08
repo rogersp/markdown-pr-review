@@ -13,6 +13,8 @@ assert.deepEqual(resolveLink(cur, 'my%20file.md'), { kind: 'file', relPath: 'doc
 
 assert.equal(resolveLink(cur, '../../../outside.md').kind, 'invalid');
 assert.equal(resolveLink(cur, '//evil/x.md').kind, 'invalid');
+assert.equal(resolveLink(cur, '..\\..\\..\\outside.md').kind, 'invalid');
+assert.equal(resolveLink(cur, 'C:\\x.md').kind, 'invalid');
 
 assert.deepEqual(resolveLink(cur, 'https://github.com/a/b'), { kind: 'external', url: 'https://github.com/a/b' });
 assert.deepEqual(resolveLink(cur, 'mailto:a@example.com'), { kind: 'external', url: 'mailto:a@example.com' });

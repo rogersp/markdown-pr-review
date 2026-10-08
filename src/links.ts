@@ -33,6 +33,9 @@ export function resolveLink(currentFile: string, href: string): ResolvedLink {
   const linkPath = safeDecode(queryAt === -1 ? beforeHash : beforeHash.slice(0, queryAt));
 
   if (linkPath === '') return { kind: 'file', relPath: currentFile, fragment };
+  // GitHub does not treat a backslash as a separator, but Windows path.join would,
+  // letting a backslash '..' slip past the check below.
+  if (linkPath.includes('\\')) return { kind: 'invalid', reason: `Unsupported link: ${href}` };
 
   const joined = linkPath.startsWith('/')
     ? linkPath.slice(1)
