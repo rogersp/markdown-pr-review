@@ -52,7 +52,7 @@ export type WebviewMessage =
   | { type: 'deleteComment'; commentId: number }
   | { type: 'resolveThread'; threadNodeId: string }
   | { type: 'unresolveThread'; threadNodeId: string }
-  | { type: 'openLink'; href: string; scrollTop: number }
+  | { type: 'openLink'; href: string; scrollTop: number; modifier: boolean }
   | { type: 'historyPush'; scrollTop: number }
   | { type: 'navigate'; direction: 'back' | 'forward'; scrollTop: number };
 
@@ -70,4 +70,5 @@ export type ExtensionMessage =
   | { type: 'scrollTo'; fragment?: string; scrollTop?: number }
   | { type: 'notice'; message: string }
   | { type: 'historyState'; canGoBack: boolean; canGoForward: boolean }
-  | { type: 'requestNavigate'; direction: 'back' | 'forward' };
+  | { type: 'requestNavigate'; direction: 'back' | 'forward' }
+  | { type: 'draftCount'; count: number };

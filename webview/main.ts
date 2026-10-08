@@ -5,7 +5,7 @@ import { createComposeBox } from './compose';
 import { DraftManager } from './draft';
 import { NavStrip } from './nav';
 import { insertAfterInTable } from './thread';
-import { classifyHref } from './links';
+import { classifyHref, type LinkAction } from './links';
 import { mountHistoryControls } from './history-controls';
 import { OutlinePanel, type OutlineState } from './outline';
 import { countOpenThreadsBySection, activeHeadingIndex, type HeadingInfo } from './outline-model';
@@ -323,15 +323,34 @@ document.addEventListener('keydown', (e) => {
 });
 
 // VS Code webviews block link navigation, so every link is routed here.
+// Cmd/Ctrl-click and middle-click ask for the other placement (see markdownPrReview.openLinks).
 document.addEventListener('click', (e) => {
   const a = (e.target as Element).closest('a');
   if (!a) return;
   const action = classifyHref(a.getAttribute('href'));
   if (action.kind === 'ignore') return;
   e.preventDefault();
-  if (action.kind === 'fragment') jumpToFragment(action.id);
-  else vscode.postMessage({ type: 'openLink', href: action.href, scrollTop: window.scrollY });
+  followLink(action, e.metaKey || e.ctrlKey);
 });
+
+document.addEventListener('auxclick', (e) => {
+  if (e.button !== 1) return;
+  const a = (e.target as Element).closest('a');
+  if (!a) return;
+  const action = classifyHref(a.getAttribute('href'));
+  if (action.kind === 'ignore') return;
+  e.preventDefault();
+  followLink(action, true);
+});
+
+function followLink(action: Exclude<LinkAction, { kind: 'ignore' }>, modifier: boolean): void {
+  if (action.kind === 'fragment' && !modifier) {
+    jumpToFragment(action.id);
+    return;
+  }
+  const href = action.kind === 'fragment' ? `#${encodeURIComponent(action.id)}` : action.href;
+  vscode.postMessage({ type: 'openLink', href, scrollTop: window.scrollY, modifier });
+}
 
 // Mouse back/forward buttons, where the platform delivers them to the webview.
 document.addEventListener('mouseup', (e) => {
@@ -358,6 +377,11 @@ window.addEventListener('message', (event: MessageEvent<ExtensionMessage>) => {
 
   if (msg.type === 'notice') {
     showToast(msg.message);
+    return;
+  }
+
+  if (msg.type === 'draftCount') {
+    draft?.setCount(msg.count);
     return;
   }
 

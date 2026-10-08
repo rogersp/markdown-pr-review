@@ -22,6 +22,16 @@ export class DraftManager {
     this._render();
   }
 
+  // Another panel added or submitted drafts in the same review.
+  setCount(count: number): void {
+    if (count === 0) {
+      this.clear();
+      return;
+    }
+    this._count = count;
+    this._render();
+  }
+
   clear(): void {
     this._count = 0;
     this._badgeEl?.remove();

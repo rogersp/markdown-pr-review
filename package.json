@@ -67,6 +67,24 @@
         "when": "activeWebviewPanelId == 'markdownPrReview'"
       }
     ],
+    "configuration": {
+      "title": "Markdown PR Review",
+      "properties": {
+        "markdownPrReview.openLinks": {
+          "type": "string",
+          "enum": [
+            "inPanel",
+            "newPanel"
+          ],
+          "enumDescriptions": [
+            "Follow links to other files in the same review panel. Cmd/Ctrl-click or middle-click opens a new panel.",
+            "Open links to other files in a new review panel. Cmd/Ctrl-click or middle-click follows them in the same panel."
+          ],
+          "default": "inPanel",
+          "description": "Where links to other markdown files open in the review panel."
+        }
+      }
+    },
     "menus": {
       "editor/context": [
         {
@@ -90,7 +108,7 @@
   "scripts": {
     "compile": "node esbuild.mjs",
     "watch": "node esbuild.mjs --watch",
-    "test": "npx tsx test/diagram-anchors.test.ts && npx tsx test/renderer-details.test.ts && npx tsx test/renderer-tables.test.ts && npx tsx test/GitHubClient-mapComment.test.ts && npx tsx test/renderer-anchors.test.ts && npx tsx test/links-webview.test.ts && npx tsx test/drafts.test.ts && npx tsx test/links-host.test.ts && npx tsx test/history.test.ts && npx tsx test/outline-model.test.ts",
+    "test": "npx tsx test/diagram-anchors.test.ts && npx tsx test/renderer-details.test.ts && npx tsx test/renderer-tables.test.ts && npx tsx test/GitHubClient-mapComment.test.ts && npx tsx test/renderer-anchors.test.ts && npx tsx test/links-webview.test.ts && npx tsx test/drafts.test.ts && npx tsx test/links-host.test.ts && npx tsx test/history.test.ts && npx tsx test/outline-model.test.ts && npx tsx test/review-session.test.ts",
     "vscode:prepublish": "node esbuild.mjs --production",
     "postinstall": "node -e \"const {execSync}=require('child_process'),fs=require('fs'),p='node_modules/@esbuild/darwin-x64';if(!fs.existsSync(p)){execSync('npm pack @esbuild/darwin-x64@0.20.2',{stdio:'ignore'});fs.mkdirSync(p,{recursive:true});execSync('tar -xzf esbuild-darwin-x64-0.20.2.tgz -C '+p+' --strip-components=1');fs.unlinkSync('esbuild-darwin-x64-0.20.2.tgz')}\""
   },

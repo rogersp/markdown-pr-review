@@ -50,3 +50,8 @@ export function resolveLink(currentFile: string, href: string): ResolvedLink {
 export function isMarkdownPath(p: string): boolean {
   return /\.(md|markdown)$/i.test(p);
 }
+
+// Cmd/Ctrl-click and middle-click invert the configured default, as in a browser.
+export function opensNewPanel(setting: string | undefined, modifier: boolean): boolean {
+  return (setting === 'newPanel') !== modifier;
+}
