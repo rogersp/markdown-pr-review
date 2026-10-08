@@ -6,6 +6,7 @@ import { DraftManager } from './draft';
 import { NavStrip } from './nav';
 import { insertAfterInTable } from './thread';
 import { classifyHref } from './links';
+import { mountHistoryControls } from './history-controls';
 import type { ExtensionMessage, PRComment, RenderMessage, ThreadMeta } from '../src/types';
 
 declare const mermaid: {
@@ -15,6 +16,16 @@ declare const mermaid: {
 
 declare const acquireVsCodeApi: () => { postMessage(msg: unknown): void };
 const vscode = acquireVsCodeApi();
+
+// Left-hand header group: history buttons (and, later, the outline toggle).
+const headerLeft = document.createElement('span');
+headerLeft.className = 'pr-header-left';
+document.getElementById('review-header')!.prepend(headerLeft);
+const historyControls = mountHistoryControls(headerLeft, () => navigate('back'), () => navigate('forward'));
+
+function navigate(direction: 'back' | 'forward'): void {
+  vscode.postMessage({ type: 'navigate', direction, scrollTop: window.scrollY });
+}
 
 let allComments: PRComment[] = [];
 let allThreadMeta: ThreadMeta[] = [];
@@ -108,6 +119,12 @@ function revealFragment(id: string): void {
   }
   target.scrollIntoView({ block: 'start' });
   flash((target.closest('[data-line]') as HTMLElement | null) ?? target);
+}
+
+// A jump the reader makes within this file: record where they were, then move.
+function jumpToFragment(id: string): void {
+  if (findFragmentTarget(id)) vscode.postMessage({ type: 'historyPush', scrollTop: window.scrollY });
+  revealFragment(id);
 }
 
 function placeOverlaysKeepOpen(): void {
@@ -246,8 +263,14 @@ document.addEventListener('click', (e) => {
   const action = classifyHref(a.getAttribute('href'));
   if (action.kind === 'ignore') return;
   e.preventDefault();
-  if (action.kind === 'fragment') revealFragment(action.id);
+  if (action.kind === 'fragment') jumpToFragment(action.id);
   else vscode.postMessage({ type: 'openLink', href: action.href, scrollTop: window.scrollY });
+});
+
+// Mouse back/forward buttons, where the platform delivers them to the webview.
+document.addEventListener('mouseup', (e) => {
+  if (e.button === 3) { e.preventDefault(); navigate('back'); }
+  if (e.button === 4) { e.preventDefault(); navigate('forward'); }
 });
 
 window.addEventListener('message', (event: MessageEvent<ExtensionMessage>) => {
@@ -269,6 +292,16 @@ window.addEventListener('message', (event: MessageEvent<ExtensionMessage>) => {
 
   if (msg.type === 'notice') {
     showToast(msg.message);
+    return;
+  }
+
+  if (msg.type === 'historyState') {
+    historyControls.setState(msg.canGoBack, msg.canGoForward);
+    return;
+  }
+
+  if (msg.type === 'requestNavigate') {
+    navigate(msg.direction);
     return;
   }
 
@@ -355,7 +388,7 @@ async function handleRender(msg: RenderMessage): Promise<void> {
     selectEl = document.createElement('select');
     selectEl.className = 'pr-file-select';
     selectEl.addEventListener('change', () => {
-      vscode.postMessage({ type: 'switchFile', path: selectEl!.value });
+      vscode.postMessage({ type: 'switchFile', path: selectEl!.value, scrollTop: window.scrollY });
     });
     selectEl.addEventListener('mousedown', () => {
       Array.from(selectEl!.options).forEach(o => { o.textContent = o.dataset.fullLabel ?? o.value; });

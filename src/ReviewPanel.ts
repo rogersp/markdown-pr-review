@@ -7,6 +7,7 @@ import { postComment, postReply, submitDraftReview, getGitHubToken,
          fetchPrComments, fetchThreadMeta } from './GitHubClient';
 import { prepareDraftComments, type DraftComment } from './drafts';
 import { resolveLink, isMarkdownPath } from './links';
+import { NavHistory, type HistoryLocation } from './history';
 
 function getNonce(): string {
   let text = '';
@@ -48,6 +49,7 @@ export class ReviewPanel {
   private _draftComments: DraftComment[] = [];
   private _lastRenderMsg: RenderMessage | undefined;
   private _navigating = false;
+  private _history = new NavHistory();
 
   static createOrShow(extensionUri: vscode.Uri): ReviewPanel {
     const column = vscode.ViewColumn.Beside;
@@ -98,6 +100,7 @@ export class ReviewPanel {
     this._currentUserLogin = ctx.currentUserLogin;
     this._draftComments = [];
 
+    this._history = new NavHistory();
     this._panel.title = 'Markdown PR Review';
 
     this._lastRenderMsg = {
@@ -117,6 +120,7 @@ export class ReviewPanel {
       readOnly: false,
     };
     this._panel.webview.postMessage(this._lastRenderMsg);
+    this._postHistoryState();
   }
 
   private _updateCachedComments(updater: (comments: PRComment[]) => PRComment[]): void {
@@ -197,7 +201,7 @@ export class ReviewPanel {
     this._panel.webview.postMessage({ type: 'notice', message });
   }
 
-  private async _openLink(href: string): Promise<void> {
+  private async _openLink(href: string, scrollTop: number): Promise<void> {
     const link = resolveLink(this._filePath, href);
     if (link.kind === 'invalid') {
       this._notice(link.reason);
@@ -219,7 +223,7 @@ export class ReviewPanel {
       });
       return;
     }
-    await this._show({ path: link.relPath, fragment: link.fragment });
+    await this._navigateTo({ path: link.relPath, fragment: link.fragment }, scrollTop);
   }
 
   // Shows a location: loads the file if it is not the current one, then asks the webview to
@@ -232,6 +236,38 @@ export class ReviewPanel {
         : { type: 'scrollTo', scrollTop: target.scrollTop ?? 0 }
     );
     return true;
+  }
+
+  // A new navigation: show the target, then record the location being left.
+  private async _navigateTo(target: { path: string; fragment?: string }, fromScrollTop: number): Promise<void> {
+    const here: HistoryLocation = { path: this._filePath, scrollTop: fromScrollTop };
+    if (await this._show(target)) {
+      this._history.push(here);
+      this._postHistoryState();
+    }
+  }
+
+  private async _go(direction: 'back' | 'forward', fromScrollTop: number): Promise<void> {
+    const target = direction === 'back' ? this._history.peekBack() : this._history.peekForward();
+    if (!target) return;
+    const here: HistoryLocation = { path: this._filePath, scrollTop: fromScrollTop };
+    if (!(await this._show(target))) return;
+    if (direction === 'back') this._history.commitBack(here);
+    else this._history.commitForward(here);
+    this._postHistoryState();
+  }
+
+  private _postHistoryState(): void {
+    this._panel.webview.postMessage({
+      type: 'historyState',
+      canGoBack: this._history.canGoBack,
+      canGoForward: this._history.canGoForward,
+    });
+  }
+
+  // For the back/forward commands: the webview replies with a 'navigate' carrying its scroll position.
+  requestNavigate(direction: 'back' | 'forward'): void {
+    this._panel.webview.postMessage({ type: 'requestNavigate', direction });
   }
 
   // Snap a 1-based line to the nearest diff-visible line for the given file.
@@ -263,16 +299,28 @@ export class ReviewPanel {
       if (this._lastRenderMsg) {
         this._panel.webview.postMessage(this._lastRenderMsg);
       }
+      this._postHistoryState();
       return;
     }
 
     if (msg.type === 'switchFile') {
-      await this._loadAndRender(msg.path);
+      await this._runNavigation(() => this._navigateTo({ path: msg.path }, msg.scrollTop));
       return;
     }
 
     if (msg.type === 'openLink') {
-      await this._runNavigation(() => this._openLink(msg.href));
+      await this._runNavigation(() => this._openLink(msg.href, msg.scrollTop));
+      return;
+    }
+
+    if (msg.type === 'historyPush') {
+      this._history.push({ path: this._filePath, scrollTop: msg.scrollTop });
+      this._postHistoryState();
+      return;
+    }
+
+    if (msg.type === 'navigate') {
+      await this._runNavigation(() => this._go(msg.direction, msg.scrollTop));
       return;
     }
 
@@ -663,6 +711,8 @@ export class ReviewPanel {
       line-height: 1.4;
     }
     .pr-nav-btn:hover { background: rgba(255,255,255,0.15); }
+    .pr-nav-btn:disabled { opacity: 0.4; cursor: default; }
+    .pr-header-left { order: -1; display: flex; align-items: center; gap: 4px; margin-right: auto; }
     [data-tooltip] { position: relative; }
     [data-tooltip]::after {
       content: attr(data-tooltip);

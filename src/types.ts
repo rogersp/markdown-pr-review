@@ -43,7 +43,7 @@ export interface RenderMessage {
 // Messages sent from the webview to the extension host
 export type WebviewMessage =
   | { type: 'ready' }
-  | { type: 'switchFile'; path: string }
+  | { type: 'switchFile'; path: string; scrollTop: number }
   | { type: 'postComment'; line: number; body: string; tempId: number }
   | { type: 'postReply'; inReplyToId: number; line: number; body: string; tempId: number }
   | { type: 'addToDraft'; line: number; body: string }
@@ -52,7 +52,9 @@ export type WebviewMessage =
   | { type: 'deleteComment'; commentId: number }
   | { type: 'resolveThread'; threadNodeId: string }
   | { type: 'unresolveThread'; threadNodeId: string }
-  | { type: 'openLink'; href: string; scrollTop: number };
+  | { type: 'openLink'; href: string; scrollTop: number }
+  | { type: 'historyPush'; scrollTop: number }
+  | { type: 'navigate'; direction: 'back' | 'forward'; scrollTop: number };
 
 // Messages sent from the extension host to the webview
 export type ExtensionMessage =
@@ -66,4 +68,6 @@ export type ExtensionMessage =
   | { type: 'threadResolved'; threadNodeId: string }
   | { type: 'threadUnresolved'; threadNodeId: string }
   | { type: 'scrollTo'; fragment?: string; scrollTop?: number }
-  | { type: 'notice'; message: string };
+  | { type: 'notice'; message: string }
+  | { type: 'historyState'; canGoBack: boolean; canGoForward: boolean }
+  | { type: 'requestNavigate'; direction: 'back' | 'forward' };
