@@ -7,6 +7,8 @@ import { NavStrip } from './nav';
 import { insertAfterInTable } from './thread';
 import { classifyHref } from './links';
 import { mountHistoryControls } from './history-controls';
+import { OutlinePanel, type OutlineState } from './outline';
+import { countOpenThreadsBySection, activeHeadingIndex, type HeadingInfo } from './outline-model';
 import type { ExtensionMessage, PRComment, RenderMessage, ThreadMeta } from '../src/types';
 
 declare const mermaid: {
@@ -14,7 +16,11 @@ declare const mermaid: {
   run(opts: { nodes: NodeList | HTMLElement[] }): Promise<void>;
 };
 
-declare const acquireVsCodeApi: () => { postMessage(msg: unknown): void };
+declare const acquireVsCodeApi: () => {
+  postMessage(msg: unknown): void;
+  getState(): unknown;
+  setState(state: unknown): void;
+};
 const vscode = acquireVsCodeApi();
 
 // Left-hand header group: history buttons (and, later, the outline toggle).
@@ -26,6 +32,64 @@ const historyControls = mountHistoryControls(headerLeft, () => navigate('back'),
 function navigate(direction: 'back' | 'forward'): void {
   vscode.postMessage({ type: 'navigate', direction, scrollTop: window.scrollY });
 }
+
+interface WebviewState { outline?: OutlineState }
+const savedState = (vscode.getState() as WebviewState | undefined) ?? {};
+const outline = new OutlinePanel(
+  id => jumpToFragment(id),
+  savedState.outline ?? { open: false, maxDepth: 3 },
+  state => vscode.setState({ ...savedState, outline: state })
+);
+
+const outlineButton = document.createElement('button');
+outlineButton.className = 'pr-nav-btn';
+outlineButton.textContent = '☰';
+outlineButton.dataset.tooltip = 'Outline  o';
+outlineButton.setAttribute('aria-label', 'Toggle outline');
+outlineButton.addEventListener('click', () => outline.toggle());
+headerLeft.prepend(outlineButton);
+
+let headings: HeadingInfo[] = [];
+let headingEls: HTMLElement[] = [];
+
+// Read before overlays add bubbles to the headings. Headings inside <details> are skipped:
+// their data-line counts from the start of the block, not the file.
+function collectHeadings(container: HTMLElement): void {
+  headingEls = Array.from(container.querySelectorAll<HTMLElement>('h1[id], h2[id], h3[id], h4[id], h5[id], h6[id]'))
+    .filter(el => !el.closest('details'));
+  headings = headingEls.map(el => ({
+    level: Number(el.tagName.slice(1)),
+    id: el.id,
+    text: el.textContent?.trim() ?? '',
+    line: Number(el.dataset.line ?? -1),
+  }));
+}
+
+function refreshOutline(): void {
+  const resolved = new Set(allThreadMeta.filter(t => t.isResolved).map(t => t.rootCommentId));
+  const openLines = allComments
+    .filter(c => !c.in_reply_to_id && !resolved.has(c.id))
+    .map(c => c.line - 1);
+  const counts = countOpenThreadsBySection(headings, openLines);
+  outline.setItems(headings.map((heading, i) => ({ ...heading, openThreads: counts[i] })));
+}
+
+function updateActiveHeading(): void {
+  const headerHeight = document.getElementById('review-header')!.offsetHeight;
+  const tops = headingEls.map(el => el.getBoundingClientRect().top + window.scrollY);
+  const i = activeHeadingIndex(tops, window.scrollY, headerHeight + 8);
+  outline.setActive(i >= 0 ? headingEls[i].id : null);
+}
+
+let scrollFrame = 0;
+window.addEventListener('scroll', () => {
+  if (scrollFrame) return;
+  scrollFrame = requestAnimationFrame(() => {
+    scrollFrame = 0;
+    updateActiveHeading();
+  });
+}, { passive: true });
+window.addEventListener('resize', () => outline.layout());
 
 let allComments: PRComment[] = [];
 let allThreadMeta: ThreadMeta[] = [];
@@ -130,6 +194,7 @@ function jumpToFragment(id: string): void {
 function placeOverlaysKeepOpen(): void {
   placeOverlays(contentEl!, allComments, allThreadMeta, buildCallbacks(), diagramAnchors);
   navStrip?.refresh(countThreads());
+  refreshOutline();
   document.querySelectorAll<HTMLElement>('[data-thread-id]').forEach(bubble => {
     if (openThreadIds.has(Number(bubble.dataset.threadId))) bubble.click();
   });
@@ -254,6 +319,7 @@ document.addEventListener('keydown', (e) => {
   if ((e.target as Element).closest('textarea, input')) return;
   if (e.key === '[') { e.preventDefault(); navStrip?.prev(); }
   if (e.key === ']') { e.preventDefault(); navStrip?.next(); }
+  if (e.key === 'o' && !e.metaKey && !e.ctrlKey && !e.altKey) { e.preventDefault(); outline.toggle(); }
 });
 
 // VS Code webviews block link navigation, so every link is routed here.
@@ -423,6 +489,7 @@ async function handleRender(msg: RenderMessage): Promise<void> {
 
   currentMarkdown = msg.markdown;
   contentEl.innerHTML = renderMarkdown(msg.markdown);
+  collectHeadings(contentEl);
 
   const isDark =
     document.body.classList.contains('vscode-dark') ||
@@ -450,6 +517,9 @@ async function handleRender(msg: RenderMessage): Promise<void> {
     );
   }
   navStrip.update(countThreads());
+  refreshOutline();
+  outline.layout();
+  updateActiveHeading();
 
   // Re-open threads that were open before the tab switch, filtered to bubbles present in DOM
   document.querySelectorAll<HTMLElement>('[data-thread-id]').forEach(bubble => {

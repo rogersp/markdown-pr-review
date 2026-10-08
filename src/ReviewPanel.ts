@@ -713,6 +713,39 @@ export class ReviewPanel {
     .pr-nav-btn:hover { background: rgba(255,255,255,0.15); }
     .pr-nav-btn:disabled { opacity: 0.4; cursor: default; }
     .pr-header-left { order: -1; display: flex; align-items: center; gap: 4px; margin-right: auto; }
+    .pr-outline {
+      position: fixed; left: 0; bottom: 0; width: 280px;
+      display: none; flex-direction: column; z-index: 90; font-size: 12px;
+      background: var(--vscode-sideBar-background, var(--vscode-editor-background));
+      border-right: 1px solid var(--vscode-widget-border, rgba(255,255,255,0.1));
+    }
+    body.pr-outline-open .pr-outline { display: flex; }
+    @media (min-width: 1160px) { body.pr-outline-open #content { margin-left: 300px; } }
+    .pr-outline-tools {
+      padding: 8px; display: flex; flex-direction: column; gap: 6px;
+      border-bottom: 1px solid var(--vscode-widget-border, rgba(255,255,255,0.1));
+    }
+    .pr-outline-filter {
+      width: 100%; box-sizing: border-box; padding: 3px 6px; font-size: 12px; border-radius: 3px;
+      background: var(--vscode-input-background, transparent);
+      color: var(--vscode-input-foreground, inherit);
+      border: 1px solid var(--vscode-input-border, rgba(255,255,255,0.2));
+    }
+    .pr-outline-depth { display: flex; gap: 4px; }
+    .pr-outline-depth--on { outline: 1px solid var(--vscode-focusBorder, #007acc); }
+    .pr-outline-list { list-style: none; margin: 0; padding: 4px 0; overflow-y: auto; flex: 1; }
+    .pr-outline-item { display: flex; align-items: center; gap: 6px; padding: 2px 8px; cursor: pointer; white-space: nowrap; }
+    .pr-outline-item:hover { background: var(--vscode-list-hoverBackground, rgba(255,255,255,0.05)); }
+    .pr-outline-label { flex: 1; overflow: hidden; text-overflow: ellipsis; }
+    .pr-outline-active { background: var(--vscode-list-inactiveSelectionBackground, rgba(255,255,255,0.1)); font-weight: 600; }
+    .pr-outline-h3 { padding-left: 20px; }
+    .pr-outline-h4 { padding-left: 32px; }
+    .pr-outline-h5 { padding-left: 44px; }
+    .pr-outline-h6 { padding-left: 56px; }
+    .pr-outline-count {
+      background: var(--vscode-badge-background, #4d4d4d); color: var(--vscode-badge-foreground, #fff);
+      border-radius: 8px; padding: 0 6px; font-size: 10px;
+    }
     [data-tooltip] { position: relative; }
     [data-tooltip]::after {
       content: attr(data-tooltip);
