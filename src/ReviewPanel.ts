@@ -5,6 +5,7 @@ import type { PRComment, PrFile, RenderMessage, ThreadMeta, WebviewMessage } fro
 import { postComment, postReply, submitDraftReview, getGitHubToken,
          editComment, deleteComment, resolveThread, unresolveThread,
          fetchPrComments, fetchThreadMeta } from './GitHubClient';
+import { prepareDraftComments, type DraftComment } from './drafts';
 
 function getNonce(): string {
   let text = '';
@@ -43,7 +44,7 @@ export class ReviewPanel {
   private _prFiles: PrFile[] = [];
   private _validLinesByPath = new Map<string, number[]>();
   private _currentUserLogin = '';
-  private _draftComments: Array<{ line: number; body: string }> = [];
+  private _draftComments: DraftComment[] = [];
   private _lastRenderMsg: RenderMessage | undefined;
 
   static createOrShow(extensionUri: vscode.Uri): ReviewPanel {
@@ -109,6 +110,8 @@ export class ReviewPanel {
       filePath: ctx.filePath,
       headSha: ctx.headSha,
       currentUserLogin: ctx.currentUserLogin,
+      validLines: ctx.validLinesByPath.get(ctx.filePath) ?? [],
+      draftCount: 0,
     };
     this._panel.webview.postMessage(this._lastRenderMsg);
   }
@@ -116,6 +119,13 @@ export class ReviewPanel {
   private _updateCachedComments(updater: (comments: PRComment[]) => PRComment[]): void {
     if (this._lastRenderMsg) {
       this._lastRenderMsg = { ...this._lastRenderMsg, comments: updater(this._lastRenderMsg.comments) };
+    }
+  }
+
+  // The cached render is re-sent when the panel is shown again; keep its badge count true.
+  private _syncDraftCount(): void {
+    if (this._lastRenderMsg) {
+      this._lastRenderMsg = { ...this._lastRenderMsg, draftCount: this._draftComments.length };
     }
   }
 
@@ -144,7 +154,6 @@ export class ReviewPanel {
       resolvedCount: threadMeta.filter(t => t.path === f.path && t.isResolved).length,
     }));
     this._filePath = relPath;
-    this._draftComments = [];
 
     this._panel.title = 'Markdown PR Review';
 
@@ -161,6 +170,7 @@ export class ReviewPanel {
       filePath: relPath,
       headSha: this._headSha,
       currentUserLogin: this._currentUserLogin,
+      draftCount: this._draftComments.length,
     };
     this._panel.webview.postMessage(this._lastRenderMsg);
   }
@@ -233,27 +243,26 @@ export class ReviewPanel {
         this._panel.webview.postMessage({ type: 'replyPosted', comment, tempId: msg.tempId });
 
       } else if (msg.type === 'addToDraft') {
-        this._draftComments.push({ line: msg.line, body: msg.body });
+        this._draftComments.push({ path: this._filePath, line: msg.line, body: msg.body });
+        this._syncDraftCount();
 
       } else if (msg.type === 'submitReview') {
-        const preparedComments = this._draftComments.map(c => {
-          const rawLine = c.line + 1;
-          const snappedLine = this._snapToDiffLine(this._filePath, rawLine);
-          const snapped = snappedLine !== rawLine;
-          return {
-            path: this._filePath,
-            line: snappedLine,
-            body: snapped ? `${c.body}${this._snapSuffix(rawLine)}` : c.body,
-          };
-        });
+        const preparedComments = prepareDraftComments(
+          this._draftComments,
+          (filePath, line) => this._snapToDiffLine(filePath, line),
+          rawLine => this._snapSuffix(rawLine)
+        );
         const comments = await submitDraftReview(
           this._owner, this._repo, this._prNumber, token,
           { commitId: this._headSha, comments: preparedComments }
         );
         this._draftComments = [];
-        this._updateCachedComments(cs => [...cs, ...comments]);
+        this._syncDraftCount();
+        // A review can span files; only this file's comments belong in the open view.
+        const forThisFile = comments.filter(c => c.path === this._filePath);
+        this._updateCachedComments(cs => [...cs, ...forThisFile]);
         // Strip metadata so webview places bubbles at original lines
-        const displayComments = comments.map(c => {
+        const displayComments = forThisFile.map(c => {
           const { cleanBody, originalLine } = this._stripSnapSuffix(c.body);
           return originalLine ? { ...c, body: cleanBody, line: originalLine } : c;
         });

@@ -395,7 +395,7 @@ async function handleRender(msg: RenderMessage): Promise<void> {
   });
 
   draft?.clear();
-  draft = new DraftManager(vscode, header);
+  draft = new DraftManager(vscode, header, msg.draftCount ?? 0);
 
   if (!selectionHandlersReady) {
     initSelectionHandlers(contentEl, onAddComment, () => validLines);

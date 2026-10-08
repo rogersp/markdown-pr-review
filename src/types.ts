@@ -2,6 +2,7 @@ export interface PRComment {
   id: number;
   node_id: string;
   in_reply_to_id?: number;
+  path?: string;
   line: number;
   outdated?: boolean;
   body: string;
@@ -35,6 +36,7 @@ export interface RenderMessage {
   filePath: string;
   headSha: string;
   currentUserLogin: string;
+  draftCount: number;
 }
 
 // Messages sent from the webview to the extension host
