@@ -92,6 +92,7 @@ function mapComment(raw: GitHubReviewComment): PRComment {
     id: raw.id,
     node_id: raw.node_id,
     in_reply_to_id: raw.in_reply_to_id,
+    path: raw.path,
     line,
     outdated: raw.line == null,
     body: raw.body,

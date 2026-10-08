@@ -3,6 +3,7 @@ import anchor from 'markdown-it-anchor';
 import GithubSlugger from 'github-slugger';
 import type Token from 'markdown-it/lib/token.mjs';
 import type StateBlock from 'markdown-it/lib/rules_block/state_block.mjs';
+import type StateInline from 'markdown-it/lib/rules_inline/state_inline.mjs';
 import type Renderer from 'markdown-it/lib/renderer.mjs';
 import type { Options } from 'markdown-it';
 
@@ -40,6 +41,23 @@ function renderFrontMatter(content: string): string {
   return `<div class="pr-front-matter"><table>${rows}</table></div>\n`;
 }
 
+// html:false escapes all raw HTML, which also escapes the empty anchors documents use as
+// link targets (`<a id="q1"></a>`). Accept exactly that shape — one id or name attribute,
+// no content — and emit a real anchor. Everything else stays escaped.
+const NAMED_ANCHOR_RE = /^<a\s+(?:id|name)\s*=\s*"([^"<>]+)"\s*>\s*<\/a>/i;
+
+function namedAnchorRule(state: StateInline, silent: boolean): boolean {
+  if (state.src.charCodeAt(state.pos) !== 0x3c /* < */) return false;
+  const match = NAMED_ANCHOR_RE.exec(state.src.slice(state.pos));
+  if (!match) return false;
+  if (!silent) {
+    const token = state.push('named_anchor', '', 0);
+    token.meta = { id: match[1] };
+  }
+  state.pos += match[0].length;
+  return true;
+}
+
 export function renderMarkdown(rawSource: string): string {
   const source = rawSource.replace(/<!--[\s\S]*?-->/g, '');
 
@@ -60,6 +78,12 @@ export function renderMarkdown(rawSource: string): string {
 
   md.block.ruler.before('hr', 'front_matter', frontMatterRule);
   md.renderer.rules['front_matter'] = (tokens, idx) => renderFrontMatter(tokens[idx].content);
+
+  // Registered before markdown-it-anchor runs; the token carries no text, so heading
+  // slugs are computed from the visible heading text only.
+  md.inline.ruler.before('autolink', 'named_anchor', namedAnchorRule);
+  md.renderer.rules['named_anchor'] = (tokens, idx) =>
+    `<a id="${escapeHtml(String(tokens[idx].meta.id))}"></a>`;
 
   const slugger = new GithubSlugger();
   md.use(anchor, {
