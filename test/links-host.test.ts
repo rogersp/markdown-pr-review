@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { resolveLink, isMarkdownPath } from '../src/links';
+import { resolveLink, isMarkdownPath, opensNewPanel } from '../src/links';
 
 const cur = 'docs/design/plan.md';
 
@@ -24,5 +24,11 @@ assert.equal(resolveLink(cur, 'vscode://some.ext/run').kind, 'invalid');
 assert.equal(isMarkdownPath('a/b.md'), true);
 assert.equal(isMarkdownPath('a/b.MARKDOWN'), true);
 assert.equal(isMarkdownPath('a/b.svg'), false);
+
+assert.equal(opensNewPanel(undefined, false), false);
+assert.equal(opensNewPanel(undefined, true), true);
+assert.equal(opensNewPanel('inPanel', true), true);
+assert.equal(opensNewPanel('newPanel', false), true);
+assert.equal(opensNewPanel('newPanel', true), false);
 
 console.log('All links-host tests passed ✓');
