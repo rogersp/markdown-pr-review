@@ -5,6 +5,7 @@ import { createComposeBox } from './compose';
 import { DraftManager } from './draft';
 import { NavStrip } from './nav';
 import { insertAfterInTable } from './thread';
+import { classifyHref } from './links';
 import type { ExtensionMessage, PRComment, RenderMessage, ThreadMeta } from '../src/types';
 
 declare const mermaid: {
@@ -82,6 +83,29 @@ function showToast(message: string): void {
   toast.textContent = message;
   document.body.appendChild(toast);
   setTimeout(() => toast.remove(), 4000);
+}
+
+function flash(el: HTMLElement): void {
+  el.classList.remove('pr-nav-highlight');
+  void el.offsetWidth; // force reflow so the animation restarts on repeated jumps
+  el.classList.add('pr-nav-highlight');
+  el.addEventListener('animationend', () => el.classList.remove('pr-nav-highlight'), { once: true });
+}
+
+// getElementById, not querySelector: heading slugs such as "55-composing" start with a
+// digit, which is not a valid CSS id selector.
+function findFragmentTarget(id: string): HTMLElement | null {
+  return document.getElementById(id) ?? document.getElementById(id.toLowerCase());
+}
+
+function revealFragment(id: string): void {
+  const target = findFragmentTarget(id);
+  if (!target) {
+    showToast(`No heading or anchor "#${id}" in this file`);
+    return;
+  }
+  target.scrollIntoView({ block: 'start' });
+  flash((target.closest('[data-line]') as HTMLElement | null) ?? target);
 }
 
 function placeOverlaysKeepOpen(): void {
@@ -211,6 +235,16 @@ document.addEventListener('keydown', (e) => {
   if ((e.target as Element).closest('textarea, input')) return;
   if (e.key === '[') { e.preventDefault(); navStrip?.prev(); }
   if (e.key === ']') { e.preventDefault(); navStrip?.next(); }
+});
+
+// VS Code webviews block link navigation, so links are routed here.
+document.addEventListener('click', (e) => {
+  const a = (e.target as Element).closest('a');
+  if (!a) return;
+  const action = classifyHref(a.getAttribute('href'));
+  if (action.kind !== 'fragment') return;
+  e.preventDefault();
+  revealFragment(action.id);
 });
 
 window.addEventListener('message', (event: MessageEvent<ExtensionMessage>) => {
@@ -365,16 +399,6 @@ async function handleRender(msg: RenderMessage): Promise<void> {
 
   if (!selectionHandlersReady) {
     initSelectionHandlers(contentEl, onAddComment, () => validLines);
-    // VS Code webviews intercept all link navigation including #anchor same-page
-    // links. Handle them manually so TOC links scroll to the correct heading.
-    document.addEventListener('click', (e) => {
-      const a = (e.target as Element).closest('a');
-      if (!a) return;
-      const href = a.getAttribute('href');
-      if (!href?.startsWith('#')) return;
-      e.preventDefault();
-      document.querySelector(href)?.scrollIntoView({ behavior: 'smooth' });
-    });
     selectionHandlersReady = true;
   }
 }

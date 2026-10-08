@@ -342,6 +342,9 @@ export class ReviewPanel {
     }
     #review-header:empty { display: none; }
     #content { max-width: 800px; margin: 0 auto; padding: 20px; }
+    .pr-content h1, .pr-content h2, .pr-content h3,
+    .pr-content h4, .pr-content h5, .pr-content h6,
+    .pr-content a[id] { scroll-margin-top: 64px; }
     .pr-bubble {
       display: inline-flex;
       align-items: center;
