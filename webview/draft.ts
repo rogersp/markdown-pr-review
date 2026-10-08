@@ -5,9 +5,11 @@ export class DraftManager {
   private _badgeEl: HTMLElement | null = null;
   private _errorEl: HTMLSpanElement | null = null;
 
-  constructor(vscode: { postMessage(msg: unknown): void }, header: HTMLElement) {
+  constructor(vscode: { postMessage(msg: unknown): void }, header: HTMLElement, initialCount = 0) {
     this._vscode = vscode;
     this._header = header;
+    this._count = initialCount;
+    if (initialCount > 0) this._render();
   }
 
   get count(): number {

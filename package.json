@@ -43,6 +43,28 @@
         "command": "markdown-pr-review.openReview",
         "title": "Markdown PR Review: Open Review Panel",
         "icon": "$(comment-discussion)"
+      },
+      {
+        "command": "markdown-pr-review.navigateBack",
+        "title": "Markdown PR Review: Go Back"
+      },
+      {
+        "command": "markdown-pr-review.navigateForward",
+        "title": "Markdown PR Review: Go Forward"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "markdown-pr-review.navigateBack",
+        "key": "alt+left",
+        "mac": "ctrl+-",
+        "when": "activeWebviewPanelId == 'markdownPrReview'"
+      },
+      {
+        "command": "markdown-pr-review.navigateForward",
+        "key": "alt+right",
+        "mac": "ctrl+shift+-",
+        "when": "activeWebviewPanelId == 'markdownPrReview'"
       }
     ],
     "menus": {
@@ -52,13 +74,23 @@
           "when": "editorLangId == markdown",
           "group": "navigation"
         }
+      ],
+      "commandPalette": [
+        {
+          "command": "markdown-pr-review.navigateBack",
+          "when": "activeWebviewPanelId == 'markdownPrReview'"
+        },
+        {
+          "command": "markdown-pr-review.navigateForward",
+          "when": "activeWebviewPanelId == 'markdownPrReview'"
+        }
       ]
     }
   },
   "scripts": {
     "compile": "node esbuild.mjs",
     "watch": "node esbuild.mjs --watch",
-    "test": "npx tsx test/diagram-anchors.test.ts && npx tsx test/renderer-details.test.ts && npx tsx test/renderer-tables.test.ts && npx tsx test/GitHubClient-mapComment.test.ts",
+    "test": "npx tsx test/diagram-anchors.test.ts && npx tsx test/renderer-details.test.ts && npx tsx test/renderer-tables.test.ts && npx tsx test/GitHubClient-mapComment.test.ts && npx tsx test/renderer-anchors.test.ts && npx tsx test/links-webview.test.ts && npx tsx test/drafts.test.ts && npx tsx test/links-host.test.ts && npx tsx test/history.test.ts && npx tsx test/outline-model.test.ts",
     "vscode:prepublish": "node esbuild.mjs --production",
     "postinstall": "node -e \"const {execSync}=require('child_process'),fs=require('fs'),p='node_modules/@esbuild/darwin-x64';if(!fs.existsSync(p)){execSync('npm pack @esbuild/darwin-x64@0.20.2',{stdio:'ignore'});fs.mkdirSync(p,{recursive:true});execSync('tar -xzf esbuild-darwin-x64-0.20.2.tgz -C '+p+' --strip-components=1');fs.unlinkSync('esbuild-darwin-x64-0.20.2.tgz')}\""
   },

@@ -5,6 +5,10 @@ import { createComposeBox } from './compose';
 import { DraftManager } from './draft';
 import { NavStrip } from './nav';
 import { insertAfterInTable } from './thread';
+import { classifyHref } from './links';
+import { mountHistoryControls } from './history-controls';
+import { OutlinePanel, type OutlineState } from './outline';
+import { countOpenThreadsBySection, activeHeadingIndex, type HeadingInfo } from './outline-model';
 import type { ExtensionMessage, PRComment, RenderMessage, ThreadMeta } from '../src/types';
 
 declare const mermaid: {
@@ -12,8 +16,80 @@ declare const mermaid: {
   run(opts: { nodes: NodeList | HTMLElement[] }): Promise<void>;
 };
 
-declare const acquireVsCodeApi: () => { postMessage(msg: unknown): void };
+declare const acquireVsCodeApi: () => {
+  postMessage(msg: unknown): void;
+  getState(): unknown;
+  setState(state: unknown): void;
+};
 const vscode = acquireVsCodeApi();
+
+// Left-hand header group: history buttons (and, later, the outline toggle).
+const headerLeft = document.createElement('span');
+headerLeft.className = 'pr-header-left';
+document.getElementById('review-header')!.prepend(headerLeft);
+const historyControls = mountHistoryControls(headerLeft, () => navigate('back'), () => navigate('forward'));
+
+function navigate(direction: 'back' | 'forward'): void {
+  vscode.postMessage({ type: 'navigate', direction, scrollTop: window.scrollY });
+}
+
+interface WebviewState { outline?: OutlineState }
+const savedState = (vscode.getState() as WebviewState | undefined) ?? {};
+const outline = new OutlinePanel(
+  id => jumpToFragment(id),
+  savedState.outline ?? { open: false, maxDepth: 3 },
+  state => vscode.setState({ ...savedState, outline: state })
+);
+
+const outlineButton = document.createElement('button');
+outlineButton.className = 'pr-nav-btn';
+outlineButton.textContent = '☰';
+outlineButton.dataset.tooltip = 'Outline  o';
+outlineButton.setAttribute('aria-label', 'Toggle outline');
+outlineButton.addEventListener('click', () => outline.toggle());
+headerLeft.prepend(outlineButton);
+
+let headings: HeadingInfo[] = [];
+let headingEls: HTMLElement[] = [];
+
+// Read before overlays add bubbles to the headings. Headings inside <details> are skipped:
+// their data-line counts from the start of the block, not the file.
+function collectHeadings(container: HTMLElement): void {
+  headingEls = Array.from(container.querySelectorAll<HTMLElement>('h1[id], h2[id], h3[id], h4[id], h5[id], h6[id]'))
+    .filter(el => !el.closest('details'));
+  headings = headingEls.map(el => ({
+    level: Number(el.tagName.slice(1)),
+    id: el.id,
+    text: el.textContent?.trim() ?? '',
+    line: Number(el.dataset.line ?? -1),
+  }));
+}
+
+function refreshOutline(): void {
+  const resolved = new Set(allThreadMeta.filter(t => t.isResolved).map(t => t.rootCommentId));
+  const openLines = allComments
+    .filter(c => !c.in_reply_to_id && !resolved.has(c.id))
+    .map(c => c.line - 1);
+  const counts = countOpenThreadsBySection(headings, openLines);
+  outline.setItems(headings.map((heading, i) => ({ ...heading, openThreads: counts[i] })));
+}
+
+function updateActiveHeading(): void {
+  const headerHeight = document.getElementById('review-header')!.offsetHeight;
+  const tops = headingEls.map(el => el.getBoundingClientRect().top + window.scrollY);
+  const i = activeHeadingIndex(tops, window.scrollY, headerHeight + 8);
+  outline.setActive(i >= 0 ? headingEls[i].id : null);
+}
+
+let scrollFrame = 0;
+window.addEventListener('scroll', () => {
+  if (scrollFrame) return;
+  scrollFrame = requestAnimationFrame(() => {
+    scrollFrame = 0;
+    updateActiveHeading();
+  });
+}, { passive: true });
+window.addEventListener('resize', () => outline.layout());
 
 let allComments: PRComment[] = [];
 let allThreadMeta: ThreadMeta[] = [];
@@ -26,6 +102,8 @@ let openThreadIds: Set<number> = new Set();
 let navStrip: NavStrip | undefined;
 let diagramAnchors: Map<number, Point> = new Map();
 let currentMarkdown = '';
+let readOnly = false;
+let renderDone: Promise<void> = Promise.resolve();
 
 function countThreads(): number {
   return document.querySelectorAll<HTMLElement>('[data-thread-id]').length;
@@ -84,9 +162,39 @@ function showToast(message: string): void {
   setTimeout(() => toast.remove(), 4000);
 }
 
+function flash(el: HTMLElement): void {
+  el.classList.remove('pr-nav-highlight');
+  void el.offsetWidth; // force reflow so the animation restarts on repeated jumps
+  el.classList.add('pr-nav-highlight');
+  el.addEventListener('animationend', () => el.classList.remove('pr-nav-highlight'), { once: true });
+}
+
+// getElementById, not querySelector: heading slugs such as "55-composing" start with a
+// digit, which is not a valid CSS id selector.
+function findFragmentTarget(id: string): HTMLElement | null {
+  return document.getElementById(id) ?? document.getElementById(id.toLowerCase());
+}
+
+function revealFragment(id: string): void {
+  const target = findFragmentTarget(id);
+  if (!target) {
+    showToast(`No heading or anchor "#${id}" in this file`);
+    return;
+  }
+  target.scrollIntoView({ block: 'start' });
+  flash((target.closest('[data-line]') as HTMLElement | null) ?? target);
+}
+
+// A jump the reader makes within this file: record where they were, then move.
+function jumpToFragment(id: string): void {
+  if (findFragmentTarget(id)) vscode.postMessage({ type: 'historyPush', scrollTop: window.scrollY });
+  revealFragment(id);
+}
+
 function placeOverlaysKeepOpen(): void {
   placeOverlays(contentEl!, allComments, allThreadMeta, buildCallbacks(), diagramAnchors);
   navStrip?.refresh(countThreads());
+  refreshOutline();
   document.querySelectorAll<HTMLElement>('[data-thread-id]').forEach(bubble => {
     if (openThreadIds.has(Number(bubble.dataset.threadId))) bubble.click();
   });
@@ -211,13 +319,55 @@ document.addEventListener('keydown', (e) => {
   if ((e.target as Element).closest('textarea, input')) return;
   if (e.key === '[') { e.preventDefault(); navStrip?.prev(); }
   if (e.key === ']') { e.preventDefault(); navStrip?.next(); }
+  if (e.key === 'o' && !e.metaKey && !e.ctrlKey && !e.altKey) { e.preventDefault(); outline.toggle(); }
+});
+
+// VS Code webviews block link navigation, so every link is routed here.
+document.addEventListener('click', (e) => {
+  const a = (e.target as Element).closest('a');
+  if (!a) return;
+  const action = classifyHref(a.getAttribute('href'));
+  if (action.kind === 'ignore') return;
+  e.preventDefault();
+  if (action.kind === 'fragment') jumpToFragment(action.id);
+  else vscode.postMessage({ type: 'openLink', href: action.href, scrollTop: window.scrollY });
+});
+
+// Mouse back/forward buttons, where the platform delivers them to the webview.
+document.addEventListener('mouseup', (e) => {
+  if (e.button === 3) { e.preventDefault(); navigate('back'); }
+  if (e.button === 4) { e.preventDefault(); navigate('forward'); }
 });
 
 window.addEventListener('message', (event: MessageEvent<ExtensionMessage>) => {
   const msg = event.data;
 
   if (msg.type === 'render') {
-    handleRender(msg).catch(console.error);
+    renderDone = handleRender(msg).catch(console.error);
+    return;
+  }
+
+  if (msg.type === 'scrollTo') {
+    // The render before this message may still be laying out mermaid diagrams.
+    void renderDone.then(() => {
+      if (msg.fragment) revealFragment(msg.fragment);
+      else window.scrollTo(0, msg.scrollTop ?? 0);
+    });
+    return;
+  }
+
+  if (msg.type === 'notice') {
+    showToast(msg.message);
+    return;
+  }
+
+  if (msg.type === 'historyState') {
+    historyControls.setState(msg.canGoBack, msg.canGoForward);
+    return;
+  }
+
+  if (msg.type === 'requestNavigate') {
+    navigate(msg.direction);
     return;
   }
 
@@ -295,6 +445,7 @@ async function handleRender(msg: RenderMessage): Promise<void> {
   allComments = msg.comments.map(processComment);
   allThreadMeta = [...msg.threadMeta];
   validLines = msg.validLines ?? [];
+  readOnly = msg.readOnly ?? false;
 
   // Build/update file-switcher dropdown in-place to avoid destroying NavStrip DOM
   const headerEl = document.getElementById('review-header')!;
@@ -303,7 +454,7 @@ async function handleRender(msg: RenderMessage): Promise<void> {
     selectEl = document.createElement('select');
     selectEl.className = 'pr-file-select';
     selectEl.addEventListener('change', () => {
-      vscode.postMessage({ type: 'switchFile', path: selectEl!.value });
+      vscode.postMessage({ type: 'switchFile', path: selectEl!.value, scrollTop: window.scrollY });
     });
     selectEl.addEventListener('mousedown', () => {
       Array.from(selectEl!.options).forEach(o => { o.textContent = o.dataset.fullLabel ?? o.value; });
@@ -324,9 +475,21 @@ async function handleRender(msg: RenderMessage): Promise<void> {
     opt.selected = f.path === msg.filePath;
     selectEl.appendChild(opt);
   }
+  if (!msg.prFiles.some(f => f.path === msg.filePath)) {
+    // A linked file outside the PR: show it in the switcher, marked read-only.
+    const opt = document.createElement('option');
+    opt.value = msg.filePath;
+    opt.dataset.shortLabel = `${fileShortName(msg.filePath, [...allPaths, msg.filePath])} (not in PR)`;
+    opt.dataset.fullLabel = `${msg.filePath} (not in PR)`;
+    opt.textContent = opt.dataset.shortLabel;
+    opt.selected = true;
+    opt.disabled = true;
+    selectEl.appendChild(opt);
+  }
 
   currentMarkdown = msg.markdown;
   contentEl.innerHTML = renderMarkdown(msg.markdown);
+  collectHeadings(contentEl);
 
   const isDark =
     document.body.classList.contains('vscode-dark') ||
@@ -354,6 +517,9 @@ async function handleRender(msg: RenderMessage): Promise<void> {
     );
   }
   navStrip.update(countThreads());
+  refreshOutline();
+  outline.layout();
+  updateActiveHeading();
 
   // Re-open threads that were open before the tab switch, filtered to bubbles present in DOM
   document.querySelectorAll<HTMLElement>('[data-thread-id]').forEach(bubble => {
@@ -361,20 +527,10 @@ async function handleRender(msg: RenderMessage): Promise<void> {
   });
 
   draft?.clear();
-  draft = new DraftManager(vscode, header);
+  draft = new DraftManager(vscode, header, msg.draftCount ?? 0);
 
   if (!selectionHandlersReady) {
-    initSelectionHandlers(contentEl, onAddComment, () => validLines);
-    // VS Code webviews intercept all link navigation including #anchor same-page
-    // links. Handle them manually so TOC links scroll to the correct heading.
-    document.addEventListener('click', (e) => {
-      const a = (e.target as Element).closest('a');
-      if (!a) return;
-      const href = a.getAttribute('href');
-      if (!href?.startsWith('#')) return;
-      e.preventDefault();
-      document.querySelector(href)?.scrollIntoView({ behavior: 'smooth' });
-    });
+    initSelectionHandlers(contentEl, onAddComment, () => validLines, () => readOnly);
     selectionHandlersReady = true;
   }
 }

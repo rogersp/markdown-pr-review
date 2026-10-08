@@ -166,6 +166,13 @@ export function activate(context: vscode.ExtensionContext): void {
     }
   );
 
+  context.subscriptions.push(
+    vscode.commands.registerCommand('markdown-pr-review.navigateBack', () =>
+      ReviewPanel.currentPanel?.requestNavigate('back')),
+    vscode.commands.registerCommand('markdown-pr-review.navigateForward', () =>
+      ReviewPanel.currentPanel?.requestNavigate('forward')),
+  );
+
   context.subscriptions.push(command);
 }
 
