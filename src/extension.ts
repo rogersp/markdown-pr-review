@@ -140,8 +140,8 @@ export function activate(context: vscode.ExtensionContext): void {
 
             const markdown = fs.readFileSync(path.join(repoRoot, selectedFile), 'utf8');
 
-            const panel = ReviewPanel.createOrShow(context.extensionUri);
-            panel.render(
+            ReviewPanel.openReview(
+              context.extensionUri,
               markdown,
               comments,
               threadMetaResult,
@@ -164,6 +164,13 @@ export function activate(context: vscode.ExtensionContext): void {
         vscode.window.showErrorMessage(`PR Review: ${message}`);
       }
     }
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('markdown-pr-review.navigateBack', () =>
+      ReviewPanel.active?.requestNavigate('back')),
+    vscode.commands.registerCommand('markdown-pr-review.navigateForward', () =>
+      ReviewPanel.active?.requestNavigate('forward')),
   );
 
   context.subscriptions.push(command);

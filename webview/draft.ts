@@ -5,9 +5,11 @@ export class DraftManager {
   private _badgeEl: HTMLElement | null = null;
   private _errorEl: HTMLSpanElement | null = null;
 
-  constructor(vscode: { postMessage(msg: unknown): void }, header: HTMLElement) {
+  constructor(vscode: { postMessage(msg: unknown): void }, header: HTMLElement, initialCount = 0) {
     this._vscode = vscode;
     this._header = header;
+    this._count = initialCount;
+    if (initialCount > 0) this._render();
   }
 
   get count(): number {
@@ -17,6 +19,16 @@ export class DraftManager {
   add(line: number, body: string): void {
     this._count++;
     this._vscode.postMessage({ type: 'addToDraft', line, body });
+    this._render();
+  }
+
+  // Another panel added or submitted drafts in the same review.
+  setCount(count: number): void {
+    if (count === 0) {
+      this.clear();
+      return;
+    }
+    this._count = count;
     this._render();
   }
 
